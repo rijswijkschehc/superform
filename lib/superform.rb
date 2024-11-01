@@ -105,7 +105,7 @@ module Superform
     # end
     # ```
     def namespace(key, &block)
-      create_child(key, self.class, object: object_for(key: key), &block)
+      create_child(key, self.class, field_class: @field_class, object: object_for(key: key), &block)
     end
 
     # Maps the `Object#proprety` and `Object#property=` to a field in a web form that can be
@@ -140,7 +140,7 @@ module Superform
     # The object within the block is a `Namespace` object that maps each object within the enumerable
     # to another `Namespace` or `Field`.
     def collection(key, &)
-      create_child(key, NamespaceCollection, &)
+      create_child(key, NamespaceCollection, field_class: @field_class, &)
     end
 
     # Creates a Hash of Hashes and Arrays that represent the fields and collections of the Superform.
@@ -162,7 +162,7 @@ module Superform
     # Assigns a hash to the current namespace and children namespace.
     def assign(hash)
       each do |child|
-        child.assign hash[child.key]
+        child.assign(hash.fetch(child.key, nil))
       end
       self
     end
@@ -189,7 +189,14 @@ module Superform
     # Checks if the child exists. If it does then it returns that. If it doesn't, it will
     # build the child.
     def create_child(key, child_class, **kwargs, &block)
-      @children.fetch(key) { @children[key] = child_class.new(key, parent: self, **kwargs, &block) }
+      if (child = @children.fetch(key, nil))
+
+        # ensure that found children are also yielded
+        child.tap { yield child if block_given? }
+      else
+        # new children added to hash and block passed to constructor
+        @children[key] = child_class.new(key, parent: self, **kwargs, &block)
+      end
     end
   end
 
@@ -261,8 +268,9 @@ module Superform
   class NamespaceCollection < Node
     include Enumerable
 
-    def initialize(key, parent:, &template)
+    def initialize(key, parent:, field_class:, &template)
       super(key, parent: parent)
+      @field_class = field_class
       @template = template
       @namespaces = enumerate(parent_collection)
     end
@@ -294,7 +302,7 @@ module Superform
     end
 
     def build_namespace(index, **)
-      parent.class.new(index, parent: self, **, &@template)
+      parent.class.new(index, parent: self, field_class: @field_class, **, &@template)
     end
 
     def parent_collection
